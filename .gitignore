@@ -1,0 +1,12 @@
+secrets/
+data/
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/
+.env
+*.pem
+*.key
+*.sqlite*
+*.sql*
+test-results/

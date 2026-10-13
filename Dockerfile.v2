@@ -1,0 +1,12 @@
+FROM python:3.10-slim-bookworm
+WORKDIR /app
+ENV PYTHONPATH=/app
+COPY requirements.lock.txt ./
+RUN pip install --no-cache-dir -r requirements.lock.txt
+COPY *.py /app/
+COPY quantv2 /app/quantv2
+COPY tests /app/tests
+COPY scripts /app/scripts
+COPY templates/v2.html /app/templates/v2.html
+USER 1000:1000
+CMD ["uvicorn","quantv2.web:app","--host","0.0.0.0","--port","8000","--no-access-log","--proxy-headers","--forwarded-allow-ips=*"]

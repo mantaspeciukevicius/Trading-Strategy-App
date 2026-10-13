@@ -1,0 +1,8 @@
+secrets
+data
+__pycache__
+.git
+*.sqlite*
+.venv
+.env
+test-results

@@ -1,0 +1,115 @@
+name: crypto-quant-lab-v2-dev
+services:
+  v2-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.v2
+    image: crypto-quant-lab-v2-dev-web:execution-v2
+    restart: unless-stopped
+    environment:
+      V2_PGHOST: v2-db
+      V2_PGDATABASE: quant_v2
+      V2_PGUSER: quant_v2
+      V2_FEED_MODE: archive
+    volumes:
+      - ./secrets/v2-db.txt:/secrets/v2-db.txt:ro
+      - ./secrets/v2-auth.json:/secrets/v2-auth.json:ro
+      - ./data:/data
+    networks: [isolated]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      v2-db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '3'}}
+  v2-forward:
+    image: crypto-quant-lab-v2-dev-web:execution-v2
+    command: [python, -m, quantv2.forward_worker]
+    restart: unless-stopped
+    environment:
+      V2_PGHOST: v2-db
+      V2_PGDATABASE: quant_v2
+      V2_PGUSER: quant_v2
+    volumes:
+      - ./secrets/v2-db.txt:/secrets/v2-db.txt:ro
+      - ./data:/data
+    networks: [isolated]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      v2-db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "from quantv2.repository import Repository; import sys; sys.exit(0 if Repository().health(worker='v2-forward-worker')['ok'] else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '3'}}
+  v2-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: quant_v2
+      POSTGRES_DB: quant_v2
+      POSTGRES_PASSWORD_FILE: /run/secrets/v2-db.txt
+    volumes:
+      - ./secrets/v2-db.txt:/run/secrets/v2-db.txt:ro
+      - v2-postgres:/var/lib/postgresql/data
+    networks: [isolated]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U quant_v2 -d quant_v2]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '3'}}
+  v2-gateway:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports: ['127.0.0.1:8768:8443']
+    volumes:
+      - ./dev-nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./secrets/v2-tls.crt:/certs/server.crt:ro
+      - ./secrets/v2-tls.key:/certs/server.key:ro
+    networks: [isolated, ingress]
+    depends_on: [v2-web]
+    read_only: true
+    tmpfs: [/var/cache/nginx, /var/run, /tmp]
+    security_opt: [no-new-privileges:true]
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '3'}}
+  v2-backup:
+    image: postgres:17-alpine
+    user: '1000:1000'
+    cap_drop: [ALL]
+    restart: unless-stopped
+    entrypoint: ['/bin/sh', '/scripts/backup-loop.sh']
+    environment:
+      PGHOST: v2-db
+      PGUSER: quant_v2
+      PGDATABASE: quant_v2
+    volumes:
+      - ./secrets/v2-db.txt:/run/secrets/v2-db.txt:ro
+      - ./data/backups:/backups
+      - ./scripts:/scripts:ro
+    networks: [isolated]
+    depends_on:
+      v2-db: {condition: service_healthy}
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck:
+      test: [CMD-SHELL, 'grep -q ''"last_error":null'' /backups/backup-status.json && test -n "$(find /backups -name "v2-*.sql.gz" -mmin -70 -print -quit)"']
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '3'}}
+networks:
+  isolated: {internal: true}
+  ingress: {}
+volumes:
+  v2-postgres:

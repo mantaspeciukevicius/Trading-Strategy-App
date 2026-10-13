@@ -1,0 +1,1 @@
+Public snapshot: source, dependency files, tests and generic development templates only. Personal operational runbooks, host identities, runtime files, database dumps, secrets, recovery keys and original Git history are excluded.
